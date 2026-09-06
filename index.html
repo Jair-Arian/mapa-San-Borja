@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Mapa interactivo sectorizado en 9 sectores del distrito de San Borja, Lima. Busca direcciones, graba rutas y clasifica automáticamente por sector.">
+    <title>Mapa Sectorizado de San Borja (9 Sectores) | Clasificación Territorial</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Leaflet.js CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+          crossorigin="anonymous" />
+
+    <!-- App Styles -->
+    <link rel="stylesheet" href="styles.css?v=4.5.6">
+
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>">
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="loading-screen">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <h2 class="loading-title">Mapa Sectorizado de San Borja</h2>
+            <p class="loading-subtitle">Cargando 9 Sectores Territoriales...</p>
+        </div>
+    </div>
+    <script>
+        // Failsafe inmediato: oculta la pantalla de carga tras máximo 1.5s
+        setTimeout(function() {
+            var ls = document.getElementById('loading-screen');
+            if (ls) ls.classList.add('hidden');
+        }, 1500);
+    </script>
+
+    <!-- Header -->
+    <header class="header" id="header">
+        <div class="header-left">
+            <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Abrir menú lateral">
+                <span class="hamburger-line"></span>
+                <span class="hamburger-line"></span>
+                <span class="hamburger-line"></span>
+            </button>
+            <div class="header-brand">
+                <span class="brand-icon">🗺️</span>
+                <div>
+                    <h1 class="brand-title">San Borja (9 Sectores)</h1>
+                    <p class="brand-subtitle">Sistema de Clasificación Territorial</p>
+                </div>
+            </div>
+        </div>
+        <div class="header-right">
+            <span class="header-badge">v3.0</span>
+            <span class="header-badge header-badge--live" id="recording-badge" style="display: none;">
+                <span class="live-dot recording-dot"></span>
+                Grabando Ruta
+            </span>
+            <span class="header-badge header-badge--live">
+                <span class="live-dot"></span>
+                9 Sectores Activos
+            </span>
+        </div>
+    </header>
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <!-- Drag Handle (visible only on mobile) -->
+        <div class="sidebar-drag-handle" id="sidebar-drag-handle">
+            <div class="drag-bar"></div>
+        </div>
+        <!-- Search Section -->
+        <div class="sidebar-section search-section">
+            <h2 class="section-title">
+                <span class="section-icon">🔍</span>
+                Buscar Dirección
+            </h2>
+            <div class="search-bar">
+                <div class="search-input-wrapper">
+                    <input
+                        type="text"
+                        id="search-input"
+                        class="search-input"
+                        placeholder="Ej: Av. San Borja Norte, Av. Aviación..."
+                        autocomplete="off"
+                        aria-label="Buscar dirección en San Borja"
+                    >
+                    <button id="search-input-clear" class="search-input-clear" aria-label="Borrar texto de búsqueda" title="Borrar texto" type="button">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
+                </div>
+                <button id="mic-btn" class="mic-btn" aria-label="Usar micrófono para dictar dirección" title="Dictar dirección por voz">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"></path>
+                        <path d="M19 10v2a7 7 0 01-14 0v-2"></path>
+                        <line x1="12" y1="19" x2="12" y2="23"></line>
+                        <line x1="8" y1="23" x2="16" y2="23"></line>
+                    </svg>
+                </button>
+                <button id="search-btn" class="search-btn" aria-label="Buscar">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                </button>
+            </div>
+            <!-- Search Suggestions Dropdown -->
+            <ul id="search-suggestions" class="search-suggestions" role="listbox" aria-label="Sugerencias de dirección"></ul>
+            <button id="clear-btn" class="clear-btn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 6h18"></path>
+                    <path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
+                    <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"></path>
+                </svg>
+                Limpiar búsqueda
+            </button>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- ROUTE RECORDER SECTION -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <div class="sidebar-section route-section">
+            <h2 class="section-title">
+                <span class="section-icon">🛣️</span>
+                Grabador de Rutas
+            </h2>
+
+            <!-- Recording Controls -->
+            <div class="route-controls">
+                <button id="route-toggle-btn" class="route-btn route-btn--start">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                    </svg>
+                    <span>Iniciar Ruta</span>
+                </button>
+                <button id="route-summary-btn" class="route-btn route-btn--summary" disabled>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                        <polyline points="10 9 9 9 8 9"></polyline>
+                    </svg>
+                    <span>Ver Resumen</span>
+                </button>
+            </div>
+
+            <!-- Recording Status -->
+            <div id="route-status" class="route-status" style="display: none;">
+                <div class="route-status-indicator">
+                    <span class="recording-pulse-dot"></span>
+                    <span class="route-status-text">Grabando...</span>
+                </div>
+                <span id="route-stop-counter" class="route-stop-counter">0 paradas</span>
+            </div>
+
+            <!-- Live Stops List -->
+            <div id="route-stops-container" class="route-stops-container" style="display: none;">
+                <div class="route-stops-header">
+                    <span class="route-stops-title">📍 Paradas registradas</span>
+                    <button id="route-clear-btn" class="route-clear-btn" title="Borrar toda la ruta">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 6h18"></path>
+                            <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"></path>
+                        </svg>
+                    </button>
+                </div>
+                <ul id="route-stops-list" class="route-stops-list">
+                    <!-- Dynamic stops rendered here by JS -->
+                </ul>
+        </div>
+
+        </div>
+        <!-- Sectors Toggle Button -->
+        <div class="sidebar-section sectors-toggle-section">
+            <button id="sectors-toggle-btn" class="sectors-toggle-btn">
+                <div class="sectors-toggle-left">
+                    <span class="section-icon">📍</span>
+                    <span>Sectores del Distrito (1 al 9)</span>
+                </div>
+                <svg class="sectors-toggle-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Sectors Section (Hidden by default) -->
+        <div class="sidebar-section sectors-section" id="sectors-panel" style="display: none;">
+            <h2 class="section-title">
+                <span class="section-icon">📍</span>
+                Sectores del Distrito (1 al 9)
+            </h2>
+
+            <div class="sector-cards" id="sector-cards">
+<div class="sector-card" data-sector="1"><div class="sector-card-indicator" style="--sector-color: #3B82F6;"></div><div class="sector-card-content"><div class="sector-card-header"><span class="sector-number">01</span><h3 class="sector-name">Sector 1</h3></div><p class="sector-subtitle">Subsectores 1-A, 1-B</p><div class="subsector-chips"><span class="subsector-chip" style="color:#3B82F6">1-A</span><span class="subsector-chip" style="color:#3B82F6">1-B</span></div></div></div>
+<div class="sector-card" data-sector="2"><div class="sector-card-indicator" style="--sector-color: #F59E0B;"></div><div class="sector-card-content"><div class="sector-card-header"><span class="sector-number">02</span><h3 class="sector-name">Sector 2</h3></div><p class="sector-subtitle">San Borja</p><div class="subsector-chips"></div></div></div>
+<div class="sector-card" data-sector="3"><div class="sector-card-indicator" style="--sector-color: #EF4444;"></div><div class="sector-card-content"><div class="sector-card-header"><span class="sector-number">03</span><h3 class="sector-name">Sector 3</h3></div><p class="sector-subtitle">San Borja</p><div class="subsector-chips"></div></div></div>
+<div class="sector-card" data-sector="4"><div class="sector-card-indicator" style="--sector-color: #10B981;"></div><div class="sector-card-content"><div class="sector-card-header"><span class="sector-number">04</span><h3 class="sector-name">Sector 4</h3></div><p class="sector-subtitle">Subsectores 4-A, 4-B</p><div class="subsector-chips"><span class="subsector-chip" style="color:#10B981">4-A</span><span class="subsector-chip" style="color:#10B981">4-B</span></div></div></div>
+<div class="sector-card" data-sector="5"><div class="sector-card-indicator" style="--sector-color: #8B5CF6;"></div><div class="sector-card-content"><div class="sector-card-header"><span class="sector-number">05</span><h3 class="sector-name">Sector 5</h3></div><p class="sector-subtitle">San Borja</p><div class="subsector-chips"></div></div></div>
+<div class="sector-card" data-sector="6"><div class="sector-card-indicator" style="--sector-color: #EC4899;"></div><div class="sector-card-content"><div class="sector-card-header"><span class="sector-number">06</span><h3 class="sector-name">Sector 6</h3></div><p class="sector-subtitle">Subsectores 6-A, 6-B</p><div class="subsector-chips"><span class="subsector-chip" style="color:#EC4899">6-A</span><span class="subsector-chip" style="color:#EC4899">6-B</span></div></div></div>
+<div class="sector-card" data-sector="7"><div class="sector-card-indicator" style="--sector-color: #06B6D4;"></div><div class="sector-card-content"><div class="sector-card-header"><span class="sector-number">07</span><h3 class="sector-name">Sector 7</h3></div><p class="sector-subtitle">San Borja</p><div class="subsector-chips"></div></div></div>
+<div class="sector-card" data-sector="8"><div class="sector-card-indicator" style="--sector-color: #F97316;"></div><div class="sector-card-content"><div class="sector-card-header"><span class="sector-number">08</span><h3 class="sector-name">Sector 8</h3></div><p class="sector-subtitle">San Borja</p><div class="subsector-chips"></div></div></div>
+<div class="sector-card" data-sector="9"><div class="sector-card-indicator" style="--sector-color: #6366F1;"></div><div class="sector-card-content"><div class="sector-card-header"><span class="sector-number">09</span><h3 class="sector-name">Sector 9</h3></div><p class="sector-subtitle">Subsectores 9-A, 9-B, 9-C</p><div class="subsector-chips"><span class="subsector-chip" style="color:#6366F1">9-A</span><span class="subsector-chip" style="color:#6366F1">9-B</span><span class="subsector-chip" style="color:#6366F1">9-C</span></div></div></div>
+</div>
+</div>
+
+
+        <!-- Info Panel (details when sector selected) -->
+        <div class="sidebar-section info-panel" id="info-panel">
+            <div class="info-panel-header">
+                <h2 class="section-title">
+                    <span class="section-icon">📋</span>
+                    <span id="info-title">Detalles del Sector</span>
+                </h2>
+                <button class="info-close" id="info-close" aria-label="Cerrar panel de detalles">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="info-body" id="info-body">
+                <p class="info-placeholder">Seleccione un sector o busque una dirección para ver los detalles.</p>
+            </div>
+        </div>
+
+        <!-- Footer Stats -->
+        <div class="sidebar-footer">
+            <div class="footer-stat">
+                <span class="stat-value">9</span>
+                <span class="stat-label">Sectores</span>
+            </div>
+            <div class="footer-divider"></div>
+            <div class="footer-stat">
+                <span class="stat-value" id="footer-stops">0</span>
+                <span class="stat-label">Paradas</span>
+            </div>
+            <div class="footer-divider"></div>
+            <div class="footer-stat">
+                <span class="stat-value">Exacto</span>
+                <span class="stat-label">Límite del área</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- ROUTE SUMMARY MODAL -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div id="route-modal" class="route-modal" style="display: none;">
+        <div class="route-modal-backdrop" id="route-modal-backdrop"></div>
+        <div class="route-modal-content">
+            <div class="route-modal-header">
+                <h2 class="route-modal-title">📋 Resumen de Ruta por Sectores</h2>
+                <button id="route-modal-close" class="route-modal-close" aria-label="Cerrar resumen">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Tab Navigation -->
+            <div class="route-modal-tabs">
+                <button class="route-tab active" data-tab="by-sector">Por Sector</button>
+                <button class="route-tab" data-tab="itinerary">Itinerario</button>
+            </div>
+
+            <!-- Tab Content -->
+            <div class="route-modal-body" id="route-modal-body">
+                <!-- Dynamically populated by JS -->
+            </div>
+
+            <!-- Export Actions -->
+            <div class="route-modal-footer">
+                <button id="route-share-btn" class="route-export-btn route-export-btn--share">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="18" cy="5" r="3"></circle>
+                        <circle cx="6" cy="12" r="3"></circle>
+                        <circle cx="18" cy="19" r="3"></circle>
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                    </svg>
+                    Compartir Ruta
+                </button>
+                <button id="route-copy-btn" class="route-export-btn route-export-btn--copy">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path>
+                    </svg>
+                    Copiar Reporte
+                </button>
+                <button id="route-download-btn" class="route-export-btn route-export-btn--download">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    Descargar CSV
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Map Container -->
+    <div id="map" class="map-container"></div>
+
+    <!-- Sidebar Overlay (mobile) -->
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <!-- Leaflet.js -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+            crossorigin="anonymous"></script>
+
+    <!-- Google Maps Platform SDK (Official Geocoding & Places Autocomplete) -->
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCQq_xZSlv0ldwxJQGYobZV6o6tYe0P5j0&libraries=places,geocoding&language=es&region=PE"></script>
+
+    <script src="sanborja-data.js"></script>
+    <!-- App Script -->
+    <script src="app.js?v=4.5.6"></script>
+</body>
+</html>
+
