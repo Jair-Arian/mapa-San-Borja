@@ -183,7 +183,8 @@ p { line-height: 1.5; color: var(--text-secondary); font-size: 0.8125rem; }
   position: fixed;
   top: var(--space-md);
   left: var(--space-md);
-  right: var(--space-md);
+  width: 360px;
+  max-width: calc(100vw - 2rem);
   z-index: var(--z-header);
   display: flex;
   align-items: center;
@@ -230,7 +231,7 @@ p { line-height: 1.5; color: var(--text-secondary); font-size: 0.8125rem; }
 }
 
 .header-right {
-  display: flex;
+  display: none;
   align-items: center;
   gap: var(--space-sm);
 }
@@ -896,7 +897,7 @@ p { line-height: 1.5; color: var(--text-secondary); font-size: 0.8125rem; }
   .header {
     top: var(--space-sm);
     left: var(--space-sm);
-    right: var(--space-sm);
+    max-width: calc(100vw - 2 * var(--space-sm));
     padding: 0.5rem var(--space-md);
   }
 
