@@ -164,14 +164,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let googleAutocompleteService = null;
 
   function initGoogleMapsServices() {
-    if (window.google && window.google.maps) {
-      if (google.maps.Geocoder && !googleGeocoder) {
-        googleGeocoder = new google.maps.Geocoder();
-      }
-      if (google.maps.places && google.maps.places.AutocompleteService && !googleAutocompleteService) {
-        googleAutocompleteService = new google.maps.places.AutocompleteService();
-      }
-    }
+    // Google Maps Platform desacoplado. Motor activo: Photon (Komoot OSM) + Nominatim (OpenStreetMap)
   }
 
   // Initialize immediately or on load
@@ -299,30 +292,7 @@ document.addEventListener('DOMContentLoaded', () => {
   async function reverseGeocodePoint(lat, lng, sector) {
     initGoogleMapsServices();
 
-    // 1. PRIMARY: Official Google Maps Geocoder (Exact Door Numbers & Addresses)
-    if (googleGeocoder) {
-      try {
-        const googleResult = await new Promise((resolve) => {
-          googleGeocoder.geocode(
-            { location: { lat, lng }, language: 'es', region: 'pe',
-                bounds: SEARCH_BOUNDS },
-            (results, status) => {
-              if (status === 'OK' && results && results.length > 0) {
-                const extracted = extractStreetAndNumberFromGoogle(results);
-                resolve(extracted);
-              } else {
-                resolve(null);
-              }
-            }
-          );
-        });
-        if (googleResult) return googleResult;
-      } catch (e) {
-        console.warn('Google reverse geocode error:', e);
-      }
-    }
-
-    // 2. Secondary Strategy: Photon (Komoot OSM - Fast fallback)
+    // 1. PRIMARY STRATEGY: Photon (Komoot OSM - Rápido, Abierto y Gratuito) (Komoot OSM - Fast fallback)
     try {
       const photonUrl = `https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}`;
       const res = await fetch(photonUrl);
@@ -1165,43 +1135,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let foundAddress = query;
 
     try {
-      // 1. PRIMARY STRATEGY: Official Google Maps Geocoder
-      initGoogleMapsServices();
-      if (googleGeocoder) {
-        try {
-          const googleResult = await new Promise((resolve) => {
-            googleGeocoder.geocode(
-              {
-                address: query + ', San Borja, Lima, Peru',
-                language: 'es',
-                region: 'pe'
-              },
-              (results, status) => {
-                if (status === 'OK' && results && results.length > 0) {
-                  const best = results[0];
-                  resolve({
-                    lat: best.geometry.location.lat(),
-                    lng: best.geometry.location.lng(),
-                    address: cleanGoogleAddress(best.formatted_address)
-                  });
-                } else {
-                  resolve(null);
-                }
-              }
-            );
-          });
-
-          if (googleResult) {
-            lat = googleResult.lat;
-            lng = googleResult.lng;
-            foundAddress = googleResult.address;
-          }
-        } catch (e) {
-          console.warn('Google search error:', e);
-        }
-      }
-
-      // 2. Secondary Strategy: Photon (Fast & reliable fallback)
+      // 1. PRIMARY STRATEGY: Photon (Komoot OSM - Rápido y Gratuito) (Fast & reliable fallback)
       if (lat === null) {
         try {
           const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(query + ' San Borja Lima')}&lat=${AREA_CENTER.lat}&lon=${AREA_CENTER.lng}&limit=1`;
@@ -1326,57 +1260,7 @@ document.addEventListener('DOMContentLoaded', () => {
     currentSuggestions = [];
     initGoogleMapsServices();
 
-    // 1. PRIMARY: Official Google Places Autocomplete
-    if (googleAutocompleteService && googleGeocoder) {
-      try {
-        const predictions = await new Promise((resolve) => {
-          googleAutocompleteService.getPlacePredictions(
-            {
-              input: query + ', San Borja',
-              componentRestrictions: { country: 'pe' },
-              locationRestriction: SEARCH_BOUNDS,
-              language: 'es'
-            },
-            (preds, status) => {
-              if (status === google.maps.places.PlacesServiceStatus.OK && preds) {
-                resolve(preds);
-              } else {
-                resolve([]);
-              }
-            }
-          );
-        });
-
-        if (predictions && predictions.length > 0) {
-          const geocodePromises = predictions.slice(0, 5).map(p => {
-            return new Promise((resolve) => {
-              googleGeocoder.geocode({ placeId: p.place_id }, (results, status) => {
-                if (status === 'OK' && results && results.length > 0) {
-                  const lat = results[0].geometry.location.lat();
-                  const lng = results[0].geometry.location.lng();
-                  const address = cleanGoogleAddress(results[0].formatted_address) || p.structured_formatting.main_text;
-                  const sector = findSectorForPoint(lat, lng);
-                  resolve({ lat, lng, address, sector });
-                } else {
-                  resolve(null);
-                }
-              });
-            });
-          });
-
-          const resolved = (await Promise.all(geocodePromises)).filter(s => s && isInsideArea(s.lat, s.lng));
-          if (resolved.length > 0) {
-            currentSuggestions = resolved;
-            renderSuggestions();
-            return;
-          }
-        }
-      } catch (e) {
-        console.warn('Google autocomplete suggestions error:', e);
-      }
-    }
-
-    // 2. Secondary Fallback: Photon (fast & free)
+    // 1. PRIMARY STRATEGY: Photon (Komoot OSM Autocomplete - Rápido y Gratuito) (fast & free)
     try {
       const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(query + ' San Borja')}&lat=${AREA_CENTER.lat}&lon=${AREA_CENTER.lng}&limit=5`;
       const res = await fetch(photonUrl);
