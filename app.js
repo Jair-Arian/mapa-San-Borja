@@ -1258,6 +1258,60 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ─── MOTOR GOOGLE GEOCODING (SDK OFICIAL + CACHÉ DE MEMORIA ANTI-CUOTA) ───
+
+  // --- CACHE PERSISTENTE DE DIRECCIONES (localStorage) ---
+  // Sobrevive cierres de pestana y reinicios del celular.
+  const SB_CACHE_KEY = 'sanborja_address_cache_v1';
+  let persistentCache = {};
+
+  function loadPersistentCache() {
+    try {
+      const raw = localStorage.getItem(SB_CACHE_KEY);
+      if (raw) {
+        persistentCache = JSON.parse(raw);
+        console.log('Cache local cargado: ' + Object.keys(persistentCache).length + ' direcciones conocidas');
+      }
+    } catch (e) {
+      console.warn('Error cargando cache local:', e);
+      persistentCache = {};
+    }
+  }
+
+  function savePersistentCache() {
+    try {
+      localStorage.setItem(SB_CACHE_KEY, JSON.stringify(persistentCache));
+    } catch (e) {
+      console.warn('Error guardando cache local:', e);
+      if (e.name === 'QuotaExceededError') {
+        const keys = Object.keys(persistentCache);
+        const toRemove = Math.floor(keys.length * 0.3);
+        keys.slice(0, toRemove).forEach(k => delete persistentCache[k]);
+        try { localStorage.setItem(SB_CACHE_KEY, JSON.stringify(persistentCache)); } catch (_) {}
+      }
+    }
+  }
+
+  function cacheAddress(query, lat, lng, address, sectorId) {
+    const key = query.toLowerCase().trim();
+    persistentCache[key] = { lat, lng, address, sectorId, ts: Date.now() };
+    const addrKey = address.toLowerCase().trim();
+    if (addrKey !== key) {
+      persistentCache[addrKey] = { lat, lng, address, sectorId, ts: Date.now() };
+    }
+    savePersistentCache();
+  }
+
+  function lookupCache(query) {
+    const key = query.toLowerCase().trim();
+    const entry = persistentCache[key];
+    if (entry) {
+      const sector = SECTORS.find(s => s.id === entry.sectorId) || UNASSIGNED;
+      return { lat: entry.lat, lng: entry.lng, address: entry.address, sector };
+    }
+    return null;
+  }
+
+  loadPersistentCache();
   const googleGeocodeCache = new Map();
 
   function getGoogleGeocoder() {
@@ -1301,6 +1355,31 @@ document.addEventListener('DOMContentLoaded', () => {
     const rawQuery = searchInput?.value?.trim();
     if (!rawQuery) {
       showToast('Por favor ingrese una dirección', 'error');
+      return;
+    }
+
+    // 0. CACHE LOCAL PERSISTENTE (0ms, 0 tokens)
+    const cached = lookupCache(rawQuery);
+    if (cached) {
+      if (searchMarker) map.removeLayer(searchMarker);
+      searchMarker = L.marker([cached.lat, cached.lng]).addTo(map);
+      const cachedSub = findSubsectorForPoint(cached.lat, cached.lng);
+      const subInfo = cachedSub
+        ? '<br><span style="color:' + cachedSub.color + ';font-size:0.85em;">' + cachedSub.name + ': ' + cachedSub.shortName + '</span>'
+        : '';
+      searchMarker.bindPopup(
+        '<strong>' + cached.address + '</strong><br>' +
+        '<span style="color:' + cached.sector.color + ';font-weight:600;">' + cached.sector.name + '</span>' +
+        subInfo
+      ).openPopup();
+      map.setView([cached.lat, cached.lng], 17, { animate: true });
+      if (isRecording) {
+        addStopToRoute(cached.address, cached.lat, cached.lng, cached.sector);
+      } else {
+        const subLabel = cachedSub ? ' -> ' + cachedSub.name : '';
+        showToast('📍 ' + cached.sector.name + subLabel + ': ' + (cached.sector.shortName || cached.address) + ' (cache)', 'success');
+      }
+      showSectorResultCard(cached.address, cached.sector, cachedSub);
       return;
     }
 
@@ -1410,6 +1489,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const foundSector = findSectorForPoint(lat, lng);
       const foundSubsector = findSubsectorForPoint ? findSubsectorForPoint(lat, lng) : null;
 
+      // Guardar en cache persistente para futuras busquedas (0 tokens)
+      if (foundSector) {
+        cacheAddress(rawQuery, lat, lng, foundAddress, foundSector.id);
+      }
+
       if (searchMarker) {
         map.removeLayer(searchMarker);
       }
@@ -1435,6 +1519,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
           const subLabel = foundSubsector ? ` → ${foundSubsector.name}` : '';
           showToast(`📍 ${foundSector.name}${subLabel}: ${foundSector.shortName || foundAddress}`, 'success');
+        showSectorResultCard(foundAddress, foundSector, foundSubsector);
         }
       } else {
         searchMarker.bindPopup(
@@ -1812,37 +1897,13 @@ document.addEventListener('DOMContentLoaded', () => {
   searchInput?.addEventListener('input', () => {
     const query = searchInput.value.trim();
     updateSearchClearBtnVisibility();
-    debouncedFetch(query);
+    // Busqueda desactivada al teclear (ahorro de tokens)
   });
 
-  // Keyboard navigation for suggestions + Enter to search
+  // Enter -> buscar (sin sugerencias automaticas para ahorrar tokens)
   searchInput?.addEventListener('keydown', e => {
-    const items = suggestionsEl?.querySelectorAll('li');
-    const isOpen = suggestionsEl?.classList.contains('visible') && items?.length > 0;
-
-    if (isOpen) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        activeSuggestionIndex = Math.min(activeSuggestionIndex + 1, items.length - 1);
-        items.forEach((li, i) => li.classList.toggle('active', i === activeSuggestionIndex));
-        items[activeSuggestionIndex]?.scrollIntoView({ block: 'nearest' });
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        activeSuggestionIndex = Math.max(activeSuggestionIndex - 1, 0);
-        items.forEach((li, i) => li.classList.toggle('active', i === activeSuggestionIndex));
-        items[activeSuggestionIndex]?.scrollIntoView({ block: 'nearest' });
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        if (activeSuggestionIndex >= 0) {
-          selectSuggestion(activeSuggestionIndex);
-        } else {
-          hideSuggestions();
-          handleSearch();
-        }
-      } else if (e.key === 'Escape') {
-        hideSuggestions();
-      }
-    } else if (e.key === 'Enter') {
+    if (e.key === 'Enter') {
+      e.preventDefault();
       handleSearch();
     }
   });
@@ -2117,11 +2178,66 @@ document.addEventListener('DOMContentLoaded', () => {
   checkAndLoadSharedRoute();
 
   // ──────────────────────────────────────────────────────────────────────────
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // TARJETA GRANDE DE RESULTADO DE SECTOR
+  // ──────────────────────────────────────────────────────────────────────────
+
+  function showSectorResultCard(address, sector, subsector) {
+    const existing = document.getElementById('sector-result-card');
+    if (existing) existing.remove();
+    if (!sector) return;
+
+    const subText = subsector ? ' \u00b7 ' + subsector.name : '';
+    const card = document.createElement('div');
+    card.id = 'sector-result-card';
+    card.style.cssText = [
+      'position:fixed',
+      'bottom:24px',
+      'left:50%',
+      'transform:translateX(-50%)',
+      'z-index:9999',
+      'background:#fff',
+      'border-radius:16px',
+      'box-shadow:0 8px 32px rgba(0,0,0,0.18),0 2px 8px rgba(0,0,0,0.08)',
+      'padding:16px 24px',
+      'min-width:280px',
+      'max-width:92vw',
+      'text-align:center',
+      'border-left:6px solid ' + sector.color,
+      'animation:sectorSlideUp 0.3s ease-out',
+      "font-family:'Inter',-apple-system,sans-serif"
+    ].join(';');
+
+    card.innerHTML = '<div style="font-size:13px;color:#5f6368;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + address + '</div>' +
+      '<div style="font-size:32px;font-weight:700;color:' + sector.color + ';line-height:1.1;">' + sector.name + subText + '</div>' +
+      '<div style="font-size:12px;color:#9aa0a6;margin-top:4px;">Toca para cerrar</div>';
+
+    card.addEventListener('click', function() { card.remove(); });
+
+    setTimeout(function() {
+      if (card.parentNode) {
+        card.style.opacity = '0';
+        card.style.transition = 'opacity 0.3s';
+        setTimeout(function() { card.remove(); }, 300);
+      }
+    }, 8000);
+
+    document.body.appendChild(card);
+  }
+
+  // CSS animation for the sector result card
+  if (!document.getElementById('sector-card-anim-style')) {
+    var animStyle = document.createElement('style');
+    animStyle.id = 'sector-card-anim-style';
+    animStyle.textContent = '@keyframes sectorSlideUp { from { transform: translateX(-50%) translateY(30px); opacity: 0; } to { transform: translateX(-50%) translateY(0); opacity: 1; } }';
+    document.head.appendChild(animStyle);
+  }
   // 16. WELCOME TOAST
   // ──────────────────────────────────────────────────────────────────────────
 
   setTimeout(() => {
-    showToast('🗺️ Mapa v4.0 — Subsectores y Grabador de Rutas Habilitados 🛣️', 'info');
+    showToast('🗺️ Mapa v5.0 — Subsectores y Grabador de Rutas Habilitados 🛣️', 'info');
   }, 1200);
 
 });
